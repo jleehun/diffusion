@@ -1,4 +1,5 @@
 import argparse
+import os
 
 import torch
 import torch.nn.functional as F
@@ -20,7 +21,7 @@ from torchinfo import summary
 from scheduler import DDIMScheduler
 from model import UNet
 from utils import save_images, normalize_to_neg_one_to_one, plot_losses
-from dataset import CustomDataset
+from dataset import CustomDataset, make_dataset
 import pandas as pd
 
 n_timesteps = 1000
@@ -54,26 +55,34 @@ def main(args):
         ToTensor(),
     ])
 
-    if args.dataset_name is not None:
+    # if args.dataset_name is not None:
 
-        def transforms(examples):
-            images = [
-                augmentations(image.convert("RGB"))
-                for image in examples["image"]
-            ]
-            return {"input": images}
+    #     def transforms(examples):
+    #         images = [
+    #             augmentations(image.convert("RGB"))
+    #             for image in examples["image"]
+    #         ]
+    #         return {"input": images}
 
-        dataset = load_dataset(
-            args.dataset_name,
-            args.dataset_config_name,
-            cache_dir=args.cache_dir,
-            split="train",
-        )
-        dataset.set_transform(transforms)
-    else:
-        df = pd.read_pickle(args.train_data_path)
-        dataset = CustomDataset(df, augmentations)
+    #     dataset = load_dataset(
+    #         args.dataset_name,
+    #         args.dataset_config_name,
+    #         cache_dir=args.cache_dir,
+    #         split="train",
+    #     )
+    #     dataset.set_transform(transforms)
+    # else:
+    #     df = pd.read_pickle(args.train_data_path)
+    #     dataset = CustomDataset(df, augmentations)
 
+    
+    data_path ={
+        'mnist': '/root/data/MNIST',
+        'cifar10': '/root/data/cifar10/cifar10/untracked',    
+    }[args.dataset_name]
+
+    _, dataset = make_dataset(args.dataset_name, data_path)
+    
     train_dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=args.train_batch_size, shuffle=True)
 
@@ -99,7 +108,10 @@ def main(args):
         progress_bar.set_description(f"Epoch {epoch}")
         losses_log = 0
         for step, batch in enumerate(train_dataloader):
-            clean_images = batch["input"].to(device)
+            # print(size(batch))
+            # clean_images = batch["input"].to(device)
+            batch, label = batch
+            clean_images = torch.tensor(batch).to(device)
             clean_images = normalize_to_neg_one_to_one(clean_images)
 
             batch_size = clean_images.shape[0]
@@ -151,6 +163,9 @@ def main(args):
 
                 save_images(generated_images, epoch, args)
                 plot_losses(losses, f"{args.loss_logs_dir}/{epoch}/")
+                
+                # if not os.path.exists(args.output_dir):
+                #     os.makedirs(args.output_dir)
 
                 torch.save(
                     {
@@ -162,27 +177,27 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Simple example of a training script.")
-    parser.add_argument("--dataset_name", type=str, default=None)
+    parser.add_argument("--dataset-name", type=str, default="cifar10") #required=True)
     parser.add_argument("--dataset_config_name", type=str, default=None)
-    parser.add_argument("--train_data_path",
-                        type=str,
-                        default=None,
-                        help="A df containing paths to training images.")
+    # parser.add_argument("--train_data_path",
+    #                     type=str,
+    #                     default=None,
+    #                     help="A df containing paths to training images.")
     parser.add_argument("--output_dir",
                         type=str,
-                        default="trained_models/ddpm-model-64.pth")
-    parser.add_argument("--samples_dir", type=str, default="test_samples/")
-    parser.add_argument("--loss_logs_dir", type=str, default="training_logs")
+                        default="results/trained_models/ddpm-model-64.pth")
+    parser.add_argument("--samples_dir", type=str, default="results/test_samples/")
+    parser.add_argument("--loss_logs_dir", type=str, default="results/training_logs")
     parser.add_argument("--cache_dir", type=str, default=None)
-    parser.add_argument("--resolution", type=int, default=64)
-    parser.add_argument("--train_batch_size", type=int, default=16)
+    parser.add_argument("--resolution", type=int, default=32)
+    parser.add_argument("--train_batch_size", type=int, default=64)
     parser.add_argument("--eval_batch_size", type=int, default=32)
-    parser.add_argument("--num_epochs", type=int, default=100)
+    parser.add_argument("--num_epochs", type=int, default=101)
     parser.add_argument("--save_model_epochs", type=int, default=10)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1)
-    parser.add_argument("--learning_rate", type=float, default=1e-3)
+    parser.add_argument("--learning_rate", type=float, default=1e-4)
     parser.add_argument("--lr_scheduler", type=str, default="cosine")
-    parser.add_argument("--lr_warmup_steps", type=int, default=500)
+    parser.add_argument("--lr_warmup_steps", type=int, default=300)
     parser.add_argument("--adam_beta1", type=float, default=0.95)
     parser.add_argument("--adam_beta2", type=float, default=0.999)
     parser.add_argument("--adam_weight_decay", type=float, default=1e-5)
